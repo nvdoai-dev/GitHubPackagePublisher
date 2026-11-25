@@ -275,7 +275,10 @@ public sealed class GitHubPackagePublisherWindow : EditorWindow
 
             GUILayout.FlexibleSpace();
             if (GUILayout.Button("OK", GUILayout.Height(30f)))
+            {
                 Close();
+                GUIUtility.ExitGUI();
+            }
             GUILayout.Space(12f);
         }
 
