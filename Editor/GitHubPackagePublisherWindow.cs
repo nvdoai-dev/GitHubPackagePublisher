@@ -6,8 +6,11 @@ using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
 
+[InitializeOnLoad]
 public sealed class GitHubPackagePublisherWindow : EditorWindow
 {
+    private const string PackageAssetPath = "Assets/GitHubPackagePublisher";
+
     private string _ghPath;
     private string _accountName;
     private string _sourcePath = string.Empty;
@@ -38,10 +41,141 @@ public sealed class GitHubPackagePublisherWindow : EditorWindow
     private MessageType _statusType = MessageType.Info;
     private bool _publishSucceeded;
 
+    static GitHubPackagePublisherWindow()
+    {
+        AddPackageToGitExclude();
+    }
+
     [MenuItem("Tools/GitHub Publish Custom Package")]
     private static void Open()
     {
         GetWindow<GitHubPackagePublisherWindow>("GitHub Package Publisher");
+    }
+
+    private static void AddPackageToGitExclude()
+    {
+        try
+        {
+            var projectRoot = Directory.GetParent(Application.dataPath)?.FullName;
+            string repositoryRoot;
+            var gitDirectory = FindGitDirectory(projectRoot, out repositoryRoot);
+            if (string.IsNullOrEmpty(gitDirectory))
+                return;
+
+            var commonDirectoryFile = Path.Combine(gitDirectory, "commondir");
+            if (File.Exists(commonDirectoryFile))
+            {
+                var commonDirectory = File.ReadAllText(commonDirectoryFile).Trim();
+                if (!string.IsNullOrEmpty(commonDirectory))
+                {
+                    gitDirectory = Path.GetFullPath(Path.Combine(gitDirectory, commonDirectory));
+                }
+            }
+
+            var repositoryRootPath = Path.GetFullPath(repositoryRoot)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var repositoryPrefix = repositoryRootPath + Path.DirectorySeparatorChar;
+            var assetsPath = Path.GetFullPath(Application.dataPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (!assetsPath.StartsWith(repositoryPrefix, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            var assetsRelativePath = assetsPath.Substring(repositoryPrefix.Length)
+                .Replace(Path.DirectorySeparatorChar, '/')
+                .Replace(Path.AltDirectorySeparatorChar, '/');
+            var packagePath = assetsRelativePath + "/" + Path.GetFileName(PackageAssetPath);
+            var ignoreRules = new[]
+            {
+                "/" + packagePath + "/",
+                "/" + packagePath + ".meta"
+            };
+
+            var excludePath = Path.Combine(gitDirectory, "info", "exclude");
+            var existingContents = File.Exists(excludePath) ? File.ReadAllText(excludePath) : string.Empty;
+            var missingRules = new System.Collections.Generic.List<string>();
+            foreach (var rule in ignoreRules)
+            {
+                if (!ContainsGitIgnoreRule(existingContents, rule))
+                    missingRules.Add(rule);
+            }
+
+            if (missingRules.Count == 0)
+                return;
+
+            Directory.CreateDirectory(Path.GetDirectoryName(excludePath));
+            var prefix = existingContents.Length == 0 || existingContents.EndsWith("\n", StringComparison.Ordinal)
+                ? string.Empty
+                : Environment.NewLine;
+            File.AppendAllText(
+                excludePath,
+                prefix + string.Join(Environment.NewLine, missingRules) + Environment.NewLine);
+            UnityEngine.Debug.Log(
+                "GitHub Package Publisher added its Assets folder to this repository's local Git exclude file.");
+        }
+        catch (IOException exception)
+        {
+            UnityEngine.Debug.LogWarning("Could not exclude GitHub Package Publisher from Git: " + exception.Message);
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            UnityEngine.Debug.LogWarning("Could not exclude GitHub Package Publisher from Git: " + exception.Message);
+        }
+        catch (ArgumentException exception)
+        {
+            UnityEngine.Debug.LogWarning("Could not exclude GitHub Package Publisher from Git: " + exception.Message);
+        }
+        catch (NotSupportedException exception)
+        {
+            UnityEngine.Debug.LogWarning("Could not exclude GitHub Package Publisher from Git: " + exception.Message);
+        }
+    }
+
+    private static string FindGitDirectory(string startDirectory, out string repositoryRoot)
+    {
+        repositoryRoot = null;
+        var directory = startDirectory;
+        while (!string.IsNullOrEmpty(directory))
+        {
+            var gitEntry = Path.Combine(directory, ".git");
+            if (Directory.Exists(gitEntry))
+            {
+                repositoryRoot = directory;
+                return Path.GetFullPath(gitEntry);
+            }
+
+            if (File.Exists(gitEntry))
+            {
+                var gitFileContents = File.ReadAllText(gitEntry).Trim();
+                const string gitDirectoryPrefix = "gitdir:";
+                if (gitFileContents.StartsWith(gitDirectoryPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    var gitDirectory = gitFileContents.Substring(gitDirectoryPrefix.Length).Trim();
+                    if (!Path.IsPathRooted(gitDirectory))
+                        gitDirectory = Path.Combine(directory, gitDirectory);
+                    repositoryRoot = directory;
+                    return Path.GetFullPath(gitDirectory);
+                }
+            }
+
+            directory = Directory.GetParent(directory)?.FullName;
+        }
+
+        return null;
+    }
+
+    private static bool ContainsGitIgnoreRule(string contents, string rule)
+    {
+        using (var reader = new StringReader(contents))
+        {
+            string line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                if (string.Equals(line.Trim(), rule, StringComparison.Ordinal))
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private void OnEnable()
