@@ -247,7 +247,7 @@ public sealed class GitHubPackagePublisherWindow : EditorWindow
             window.titleContent = new GUIContent("Publish complete");
             window.minSize = new Vector2(WindowWidth, WindowHeight);
             window.maxSize = new Vector2(WindowWidth, WindowHeight);
-            window.ShowModalUtility();
+            window.ShowUtility();
         }
 
         private void OnGUI()
@@ -275,7 +275,7 @@ public sealed class GitHubPackagePublisherWindow : EditorWindow
 
             GUILayout.FlexibleSpace();
             if (GUILayout.Button("OK", GUILayout.Height(30f)))
-                Close();
+                EditorApplication.delayCall += Close;
             GUILayout.Space(12f);
         }
 
